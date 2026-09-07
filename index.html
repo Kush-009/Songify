@@ -320,10 +320,9 @@
 
         extractBtn.disabled = true;
         statusEl.className = 'status-text';
-        statusEl.innerText = 'Extracting playlist metadata...';
+        statusEl.innerText = 'Authenticating and extracting playlist...';
         
         try {
-            // Using Date.now() to completely bypass iOS caching
             const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}&t=${Date.now()}`);
             const data = await response.json();
             
