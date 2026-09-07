@@ -41,6 +41,93 @@
             margin-bottom: 25px;
             color: #52473F;
         }
+        
+        /* Auth Screen Styles */
+        #auth-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 0;
+            text-align: center;
+        }
+        #auth-screen p {
+            color: #8A7F77;
+            margin-bottom: 25px;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+        .login-btn {
+            background-color: #38312C;
+            color: #F7EFEA;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: opacity 0.2s;
+            width: 100%;
+        }
+        .login-btn:hover {
+            opacity: 0.8;
+        }
+
+        /* Main UI Styles */
+        #main-screen {
+            display: none;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #52473F;
+        }
+        
+        .playlist-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 25px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        .playlist-card {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            background-color: #FCFAf8;
+            border: 1px solid #F0E6DD;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .playlist-card:hover {
+            background-color: #EFE4D9;
+        }
+        .playlist-card img {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            margin-right: 15px;
+            object-fit: cover;
+            background-color: #EFE4D9;
+        }
+        .playlist-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .playlist-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: #38312C;
+        }
+        .playlist-count {
+            font-size: 13px;
+            color: #8A7F77;
+            margin-top: 4px;
+        }
+
         .input-group {
             display: flex;
             flex-direction: column;
@@ -204,51 +291,213 @@
 <div class="container">
     <h1>Songify</h1>
     
-    <div class="input-group">
-        <input type="text" id="playlist-url" placeholder="Paste Spotify Playlist URL here...">
-        <button id="extract-btn" onclick="processPlaylist()">Extract & Download</button>
-    </div>
-    
-    <div id="global-status" class="status-text">Your offline library is ready.</div>
-    
-    <div class="player-box">
-        <div class="now-playing" id="now-playing-title">Not Playing</div>
-        <div class="controls">
-            <button class="control-btn" onclick="playPrev()">⏮</button>
-            <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">▶</button>
-            <button class="control-btn" onclick="playNext()">⏭</button>
-            <button class="control-btn" onclick="toggleShuffle()" id="shuffle-btn" style="font-size: 16px;">🔀</button>
-        </div>
-        <audio id="main-audio" playsinline></audio>
+    <!-- AUTH SCREEN -->
+    <div id="auth-screen">
+        <p>Connect your Spotify account to directly select and download your saved playlists.</p>
+        <a href="/api/login" class="login-btn">Login with Spotify</a>
     </div>
 
-    <ul class="track-list" id="track-list"></ul>
+    <!-- MAIN SCREEN -->
+    <div id="main-screen">
+        <div class="section-title">Select a Playlist</div>
+        <div class="playlist-grid" id="user-playlists">
+            <!-- Dynamically populated via JS -->
+            <div style="text-align: center; font-size: 14px; color: #8A7F77;">Loading your playlists...</div>
+        </div>
+
+        <div class="section-title">Or Paste a Link</div>
+        <div class="input-group">
+            <input type="text" id="playlist-url" placeholder="Paste Spotify or YouTube link here...">
+            <button id="extract-btn" onclick="processManualLink()">Extract & Download</button>
+        </div>
+        
+        <div id="global-status" class="status-text">Your offline library is ready.</div>
+        
+        <div class="player-box">
+            <div class="now-playing" id="now-playing-title">Not Playing</div>
+            <div class="controls">
+                <button class="control-btn" onclick="playPrev()">⏮</button>
+                <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">▶</button>
+                <button class="control-btn" onclick="playNext()">⏭</button>
+                <button class="control-btn" onclick="toggleShuffle()" id="shuffle-btn" style="font-size: 16px;">🔀</button>
+            </div>
+            <audio id="main-audio" playsinline></audio>
+        </div>
+
+        <ul class="track-list" id="track-list"></ul>
+    </div>
 </div>
 
 <script>
-    const dbName = 'SongifyOfflineDB_V3';
+    const dbName = 'SongifyOfflineDB_V4';
     let db;
     let playlistQueue = [];
     let currentTrackIndex = -1;
     let isShuffle = false;
+    let spotifyToken = null;
+    
     const audioEl = document.getElementById('main-audio');
     const statusEl = document.getElementById('global-status');
     const extractBtn = document.getElementById('extract-btn');
+    const authScreen = document.getElementById('auth-screen');
+    const mainScreen = document.getElementById('main-screen');
 
-    let audioUnlocked = false;
-    function unlockAudio() {
-        if (!audioUnlocked) {
-            audioEl.play().catch(() => {});
-            audioEl.pause();
-            audioEl.currentTime = 0;
-            audioUnlocked = true;
-            document.removeEventListener('click', unlockAudio);
-            document.removeEventListener('touchstart', unlockAudio);
+    // -- Authentication State Management --
+    function checkAuth() {
+        // Check URL for token after Vercel callback redirects here
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenFromUrl = urlParams.get('token');
+        const errorFromUrl = urlParams.get('error');
+
+        if (tokenFromUrl) {
+            localStorage.setItem('spotify_token', tokenFromUrl);
+            window.history.replaceState({}, document.title, "/"); 
+            spotifyToken = tokenFromUrl;
+        } else {
+            spotifyToken = localStorage.getItem('spotify_token');
+        }
+
+        if (errorFromUrl) {
+            alert("Authentication failed. Please try again.");
+            window.history.replaceState({}, document.title, "/"); 
+        }
+
+        if (spotifyToken) {
+            authScreen.style.display = 'none';
+            mainScreen.style.display = 'block';
+            fetchUserPlaylists();
+        } else {
+            authScreen.style.display = 'flex';
+            mainScreen.style.display = 'none';
         }
     }
-    document.addEventListener('click', unlockAudio);
-    document.addEventListener('touchstart', unlockAudio);
 
+    // -- Fetch and Display User's Playlists directly from Spotify --
+    async function fetchUserPlaylists() {
+        try {
+            const res = await fetch('https://api.spotify.com/v1/me/playlists?limit=20', {
+                headers: { 'Authorization': `Bearer ${spotifyToken}` }
+            });
+            
+            if (res.status === 401) {
+                // Token expired
+                localStorage.removeItem('spotify_token');
+                checkAuth();
+                return;
+            }
+
+            const data = await res.json();
+            const grid = document.getElementById('user-playlists');
+            grid.innerHTML = '';
+
+            if (data.items && data.items.length > 0) {
+                data.items.forEach(playlist => {
+                    const card = document.createElement('div');
+                    card.className = 'playlist-card';
+                    card.onclick = () => extractSpotifyAPI(playlist.id, playlist.name);
+                    
+                    const imgUrl = playlist.images.length > 0 ? playlist.images[0].url : '';
+                    
+                    card.innerHTML = `
+                        <img src="${imgUrl}" alt="Cover">
+                        <div class="playlist-info">
+                            <div class="playlist-title">${playlist.name}</div>
+                            <div class="playlist-count">${playlist.tracks.total} Tracks</div>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            } else {
+                grid.innerHTML = '<div style="text-align: center; color: #8A7F77; font-size: 14px;">No playlists found on your account.</div>';
+            }
+        } catch (error) {
+            document.getElementById('user-playlists').innerHTML = '<div style="color: #D9534F; text-align: center; font-size: 14px;">Failed to load playlists.</div>';
+        }
+    }
+
+    // -- Extract exact tracks from Spotify using the Access Token --
+    async function extractSpotifyAPI(playlistId, playlistName) {
+        statusEl.className = 'status-text';
+        statusEl.innerText = `Extracting "${playlistName}"...`;
+        extractBtn.disabled = true;
+
+        try {
+            const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, {
+                headers: { 'Authorization': `Bearer ${spotifyToken}` }
+            });
+            const data = await res.json();
+            
+            if (data.items) {
+                const tracks = [];
+                data.items.forEach((item, idx) => {
+                    const track_info = item.track;
+                    if (track_info) {
+                        tracks.push({
+                            id: `spot_${playlistId}_${idx}`,
+                            title: track_info.name || 'Unknown Title',
+                            artist: track_info.artists ? track_info.artists[0].name : 'Unknown Artist'
+                        });
+                    }
+                });
+                
+                statusEl.innerText = `Found ${tracks.length} tracks. Starting downloads...`;
+                playlistQueue = tracks;
+                renderTrackList(playlistQueue, false);
+                await downloadQueue(playlistQueue);
+            }
+        } catch (error) {
+            statusEl.className = 'status-text error-text';
+            statusEl.innerText = 'Failed to extract Spotify playlist data.';
+        }
+        extractBtn.disabled = false;
+    }
+
+    // -- Handle manual link pasting --
+    async function processManualLink() {
+        const urlInput = document.getElementById('playlist-url').value.trim();
+        if (!urlInput) {
+            alert('Please enter a link.');
+            return;
+        }
+
+        // If they paste a Spotify link, use the fast API method directly!
+        if (urlInput.includes('spotify.com/playlist/')) {
+            const match = urlInput.match(/playlist\/([a-zA-Z0-9]+)/);
+            if (match && match[1]) {
+                extractSpotifyAPI(match[1], "Custom Link");
+                return;
+            }
+        }
+
+        // Fallback for YouTube or other links using backend Vercel Python script
+        extractBtn.disabled = true;
+        statusEl.className = 'status-text';
+        statusEl.innerText = 'Extracting external link metadata...';
+        
+        try {
+            const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}&t=${Date.now()}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                statusEl.className = 'status-text error-text';
+                statusEl.innerText = `Error: ${data.error}`;
+            } else if (data.tracks && data.tracks.length > 0) {
+                statusEl.innerText = `Found ${data.tracks.length} tracks. Starting downloads...`;
+                playlistQueue = data.tracks;
+                renderTrackList(playlistQueue, false);
+                await downloadQueue(playlistQueue);
+            } else {
+                statusEl.className = 'status-text error-text';
+                statusEl.innerText = 'Could not find any tracks.';
+            }
+        } catch (error) {
+            statusEl.className = 'status-text error-text';
+            statusEl.innerText = 'Network connection failed during extraction.';
+        }
+        extractBtn.disabled = false;
+    }
+
+    // -- Database Helpers --
     const initDB = () => {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(dbName, 1);
@@ -263,13 +512,9 @@
                 loadOfflineTracks();
                 resolve();
             };
-            request.onerror = (e) => {
-                reject(e);
-            };
+            request.onerror = (e) => reject(e);
         });
     };
-
-    initDB();
 
     function saveTrackToDB(track, blob) {
         return new Promise((resolve, reject) => {
@@ -306,47 +551,11 @@
             if (req.result && req.result.length > 0) {
                 playlistQueue = req.result;
                 renderTrackList(playlistQueue, true);
-                statusEl.innerText = `Loaded ${playlistQueue.length} offline tracks.`;
+                if(statusEl.innerText.includes("library is ready")) {
+                    statusEl.innerText = `Loaded ${playlistQueue.length} offline tracks.`;
+                }
             }
         };
-    }
-
-    async function processPlaylist() {
-        const urlInput = document.getElementById('playlist-url').value.trim();
-        if (!urlInput) {
-            alert('Please enter a valid playlist URL.');
-            return;
-        }
-
-        extractBtn.disabled = true;
-        statusEl.className = 'status-text';
-        statusEl.innerText = 'Authenticating and extracting playlist...';
-        
-        try {
-            const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}&t=${Date.now()}`);
-            const data = await response.json();
-            
-            if (data.error) {
-                statusEl.className = 'status-text error-text';
-                statusEl.innerText = `Error: ${data.error}`;
-                extractBtn.disabled = false;
-                return;
-            }
-
-            if (data.tracks && data.tracks.length > 0) {
-                statusEl.innerText = `Found ${data.tracks.length} tracks. Starting downloads...`;
-                playlistQueue = data.tracks;
-                renderTrackList(playlistQueue, false);
-                await downloadQueue(playlistQueue);
-            } else {
-                statusEl.className = 'status-text error-text';
-                statusEl.innerText = 'Could not find any tracks.';
-            }
-        } catch (error) {
-            statusEl.className = 'status-text error-text';
-            statusEl.innerText = 'Network connection failed during extraction.';
-        }
-        extractBtn.disabled = false;
     }
 
     async function downloadQueue(tracks) {
@@ -372,9 +581,7 @@
                             downloaded = true;
                             break; 
                         }
-                    } catch (e) {
-                        console.log(`Retry...`, e);
-                    }
+                    } catch (e) {}
                 }
                 
                 if (!downloaded) {
@@ -390,7 +597,7 @@
         if (failCount === 0) {
             statusEl.innerText = 'All music saved for offline play!';
         } else {
-            statusEl.innerText = `Finished with ${failCount} errors. Press Extract again to retry.`;
+            statusEl.innerText = `Finished with ${failCount} errors. Select the playlist again to retry.`;
         }
         
         loadOfflineTracks();
@@ -421,6 +628,21 @@
             list.appendChild(li);
         });
     }
+
+    // iOS Audio Unlocker
+    let audioUnlocked = false;
+    function unlockAudio() {
+        if (!audioUnlocked) {
+            audioEl.play().catch(() => {});
+            audioEl.pause();
+            audioEl.currentTime = 0;
+            audioUnlocked = true;
+            document.removeEventListener('click', unlockAudio);
+            document.removeEventListener('touchstart', unlockAudio);
+        }
+    }
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio);
 
     function playTrack(index) {
         if (index < 0 || index >= playlistQueue.length) return;
@@ -466,17 +688,9 @@
         });
     }
 
-    audioEl.addEventListener('play', () => {
-        document.getElementById('play-pause-btn').innerText = '⏸';
-    });
-
-    audioEl.addEventListener('pause', () => {
-        document.getElementById('play-pause-btn').innerText = '▶';
-    });
-
-    audioEl.addEventListener('ended', () => {
-        playNext();
-    });
+    audioEl.addEventListener('play', () => { document.getElementById('play-pause-btn').innerText = '⏸'; });
+    audioEl.addEventListener('pause', () => { document.getElementById('play-pause-btn').innerText = '▶'; });
+    audioEl.addEventListener('ended', () => { playNext(); });
 
     function togglePlayPause() {
         if (audioEl.src) {
@@ -490,13 +704,8 @@
 
     function playNext() {
         if (playlistQueue.length === 0) return;
-        let nextIndex;
-        if (isShuffle) {
-            nextIndex = Math.floor(Math.random() * playlistQueue.length);
-        } else {
-            nextIndex = currentTrackIndex + 1;
-            if (nextIndex >= playlistQueue.length) nextIndex = 0;
-        }
+        let nextIndex = isShuffle ? Math.floor(Math.random() * playlistQueue.length) : currentTrackIndex + 1;
+        if (nextIndex >= playlistQueue.length) nextIndex = 0;
         playTrack(nextIndex);
     }
 
@@ -512,6 +721,10 @@
         const btn = document.getElementById('shuffle-btn');
         btn.style.backgroundColor = isShuffle ? '#D9C8B7' : '#FFFFFF';
     }
+
+    // Start App
+    initDB();
+    checkAuth();
 </script>
 </body>
 </html>
