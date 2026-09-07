@@ -112,6 +112,12 @@
             margin-right: 15px;
             object-fit: cover;
             background-color: #EFE4D9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #A3968C;
+            font-size: 10px;
+            text-align: center;
         }
         .playlist-info {
             display: flex;
@@ -301,7 +307,6 @@
     <div id="main-screen">
         <div class="section-title">Select a Playlist</div>
         <div class="playlist-grid" id="user-playlists">
-            <!-- Dynamically populated via JS -->
             <div style="text-align: center; font-size: 14px; color: #8A7F77;">Loading your playlists...</div>
         </div>
 
@@ -342,9 +347,7 @@
     const authScreen = document.getElementById('auth-screen');
     const mainScreen = document.getElementById('main-screen');
 
-    // -- Authentication State Management --
     function checkAuth() {
-        // Check URL for token after Vercel callback redirects here
         const urlParams = new URLSearchParams(window.location.search);
         const tokenFromUrl = urlParams.get('token');
         const errorFromUrl = urlParams.get('error');
@@ -372,7 +375,6 @@
         }
     }
 
-    // -- Fetch and Display User's Playlists directly from Spotify --
     async function fetchUserPlaylists() {
         try {
             const res = await fetch('https://api.spotify.com/v1/me/playlists?limit=20', {
@@ -380,10 +382,14 @@
             });
             
             if (res.status === 401) {
-                // Token expired
                 localStorage.removeItem('spotify_token');
                 checkAuth();
                 return;
+            }
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error?.message || "Failed to fetch from Spotify API");
             }
 
             const data = await res.json();
@@ -392,17 +398,22 @@
 
             if (data.items && data.items.length > 0) {
                 data.items.forEach(playlist => {
+                    if (!playlist) return; // Skip if null
+
                     const card = document.createElement('div');
                     card.className = 'playlist-card';
                     card.onclick = () => extractSpotifyAPI(playlist.id, playlist.name);
                     
-                    const imgUrl = playlist.images.length > 0 ? playlist.images[0].url : '';
+                    // Safely check for images and tracks to prevent UI crashes
+                    const imgUrl = (playlist.images && playlist.images.length > 0) ? playlist.images[0].url : 'https://placehold.co/50x50/EFE4D9/8A7F77?text=No+Cover';
+                    const playlistName = playlist.name || "Unnamed Playlist";
+                    const totalTracks = playlist.tracks ? playlist.tracks.total : 0;
                     
                     card.innerHTML = `
-                        <img src="${imgUrl}" alt="Cover">
+                        <img src="${imgUrl}" alt="Cover" onerror="this.src='https://placehold.co/50x50/EFE4D9/8A7F77?text=Cover'">
                         <div class="playlist-info">
-                            <div class="playlist-title">${playlist.name}</div>
-                            <div class="playlist-count">${playlist.tracks.total} Tracks</div>
+                            <div class="playlist-title">${playlistName}</div>
+                            <div class="playlist-count">${totalTracks} Tracks</div>
                         </div>
                     `;
                     grid.appendChild(card);
@@ -411,11 +422,11 @@
                 grid.innerHTML = '<div style="text-align: center; color: #8A7F77; font-size: 14px;">No playlists found on your account.</div>';
             }
         } catch (error) {
-            document.getElementById('user-playlists').innerHTML = '<div style="color: #D9534F; text-align: center; font-size: 14px;">Failed to load playlists.</div>';
+            console.error(error);
+            document.getElementById('user-playlists').innerHTML = `<div style="color: #D9534F; text-align: center; font-size: 14px;">Error: ${error.message}</div>`;
         }
     }
 
-    // -- Extract exact tracks from Spotify using the Access Token --
     async function extractSpotifyAPI(playlistId, playlistName) {
         statusEl.className = 'status-text';
         statusEl.innerText = `Extracting "${playlistName}"...`;
@@ -425,9 +436,12 @@
             const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, {
                 headers: { 'Authorization': `Bearer ${spotifyToken}` }
             });
+            
+            if (!res.ok) throw new Error("Could not access this playlist. Make sure it has tracks.");
+            
             const data = await res.json();
             
-            if (data.items) {
+            if (data.items && data.items.length > 0) {
                 const tracks = [];
                 data.items.forEach((item, idx) => {
                     const track_info = item.track;
@@ -435,7 +449,7 @@
                         tracks.push({
                             id: `spot_${playlistId}_${idx}`,
                             title: track_info.name || 'Unknown Title',
-                            artist: track_info.artists ? track_info.artists[0].name : 'Unknown Artist'
+                            artist: (track_info.artists && track_info.artists.length > 0) ? track_info.artists[0].name : 'Unknown Artist'
                         });
                     }
                 });
@@ -444,15 +458,17 @@
                 playlistQueue = tracks;
                 renderTrackList(playlistQueue, false);
                 await downloadQueue(playlistQueue);
+            } else {
+                statusEl.className = 'status-text error-text';
+                statusEl.innerText = 'This playlist appears to be empty.';
             }
         } catch (error) {
             statusEl.className = 'status-text error-text';
-            statusEl.innerText = 'Failed to extract Spotify playlist data.';
+            statusEl.innerText = error.message || 'Failed to extract Spotify playlist data.';
         }
         extractBtn.disabled = false;
     }
 
-    // -- Handle manual link pasting --
     async function processManualLink() {
         const urlInput = document.getElementById('playlist-url').value.trim();
         if (!urlInput) {
@@ -460,7 +476,6 @@
             return;
         }
 
-        // If they paste a Spotify link, use the fast API method directly!
         if (urlInput.includes('spotify.com/playlist/')) {
             const match = urlInput.match(/playlist\/([a-zA-Z0-9]+)/);
             if (match && match[1]) {
@@ -469,7 +484,6 @@
             }
         }
 
-        // Fallback for YouTube or other links using backend Vercel Python script
         extractBtn.disabled = true;
         statusEl.className = 'status-text';
         statusEl.innerText = 'Extracting external link metadata...';
@@ -497,7 +511,6 @@
         extractBtn.disabled = false;
     }
 
-    // -- Database Helpers --
     const initDB = () => {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(dbName, 1);
@@ -629,7 +642,6 @@
         });
     }
 
-    // iOS Audio Unlocker
     let audioUnlocked = false;
     function unlockAudio() {
         if (!audioUnlocked) {
@@ -722,7 +734,6 @@
         btn.style.backgroundColor = isShuffle ? '#D9C8B7' : '#FFFFFF';
     }
 
-    // Start App
     initDB();
     checkAuth();
 </script>
