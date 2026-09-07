@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Songify</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background-color: #F7EFEA; /* Cream / Skin color mix */
+            color: #38312C;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #FFFFFF;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 16px;
+            padding: 30px 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+            display: flex;
+            flex-direction: column;
+            height: fit-content;
+        }
+        h1 {
+            text-align: center;
+            font-size: 26px;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 25px;
+            color: #52473F;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 16px;
+            border: 2px solid #F0E6DD;
+            border-radius: 12px;
+            font-size: 16px;
+            background-color: #FCFAf8;
+            outline: none;
+            color: #38312C;
+            transition: border-color 0.2s ease;
+        }
+        input[type="text"]:focus {
+            border-color: #DBCAC0;
+        }
+        button {
+            padding: 16px;
+            background-color: #EFE4D9;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #52473F;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #E5D7C9;
+        }
+        button:active {
+            background-color: #D9C8B7;
+        }
+        .status-text {
+            text-align: center;
+            font-size: 14px;
+            color: #8A7F77;
+            margin-bottom: 20px;
+            min-height: 20px;
+            font-weight: 500;
+        }
+        .player-box {
+            background-color: #F7EFEA;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+        }
+        .now-playing {
+            font-size: 15px;
+            font-weight: 600;
+            text-align: center;
+            color: #52473F;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+        .control-btn {
+            background-color: #FFFFFF;
+            border: 1px solid #EFE4D9;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            padding: 0;
+            color: #52473F;
+        }
+        .control-btn:hover {
+            background-color: #FCFAf8;
+        }
+        .track-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .track-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px;
+            background-color: #FCFAf8;
+            border: 1px solid #F0E6DD;
+            border-radius: 12px;
+        }
+        .track-info {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding-right: 10px;
+        }
+        .track-title {
+            font-weight: 600;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #38312C;
+        }
+        .track-artist {
+            font-size: 13px;
+            color: #8A7F77;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-status {
+            font-size: 12px;
+            font-weight: 600;
+            color: #A3968C;
+            margin-top: 6px;
+        }
+        .play-btn {
+            background-color: #FFFFFF;
+            border: 2px solid #EFE4D9;
+            padding: 8px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        audio {
+            display: none; 
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Songify</h1>
+    
+    <div class="input-group">
+        <input type="text" id="playlist-url" placeholder="Paste Spotify Playlist URL here...">
+        <button onclick="processPlaylist()">Extract & Download</button>
+    </div>
+    
+    <div id="global-status" class="status-text">Your offline library is ready.</div>
+    
+    <div class="player-box">
+        <div class="now-playing" id="now-playing-title">Not Playing</div>
+        <div class="controls">
+            <button class="control-btn" onclick="playPrev()">⏮</button>
+            <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">▶</button>
+            <button class="control-btn" onclick="playNext()">⏭</button>
+            <button class="control-btn" onclick="toggleShuffle()" id="shuffle-btn">🔀</button>
+        </div>
+        <audio id="main-audio" playsinline></audio>
+    </div>
+
+    <ul class="track-list" id="track-list"></ul>
+</div>
+
+<script>
+    const dbName = 'SongifyOfflineDB';
+    let db;
+    let playlistQueue = [];
+    let currentTrackIndex = -1;
+    let isShuffle = false;
+    const audioEl = document.getElementById('main-audio');
+
+    // Initialize IndexedDB
+    const initDB = () => {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(dbName, 1);
+            request.onupgradeneeded = (e) => {
+                db = e.target.result;
+                if (!db.objectStoreNames.contains('tracks')) {
+                    db.createObjectStore('tracks', { keyPath: 'id' });
+                }
+            };
+            request.onsuccess = (e) => {
+                db = e.target.result;
+                loadOfflineTracks();
+                resolve();
+            };
+            request.onerror = (e) => reject(e);
+        });
+    };
+
+    initDB();
+
+    // Database Helpers
+    function saveTrackToDB(track, blob) {
+        return new Promise((resolve) => {
+            const tx = db.transaction('tracks', 'readwrite');
+            const store = tx.objectStore('tracks');
+            store.put({ id: track.id, title: track.title, artist: track.artist, blob: blob });
+            tx.oncomplete = () => resolve();
+        });
+    }
+
+    function checkTrackInDB(id) {
+        return new Promise((resolve) => {
+            const tx = db.transaction('tracks', 'readonly');
+            const req = tx.objectStore('tracks').get(id);
+            req.onsuccess = () => resolve(req.result !== undefined);
+        });
+    }
+
+    function getTrackBlob(id) {
+        return new Promise((resolve) => {
+            const tx = db.transaction('tracks', 'readonly');
+            const req = tx.objectStore('tracks').get(id);
+            req.onsuccess = () => resolve(req.result ? req.result.blob : null);
+        });
+    }
+
+    function loadOfflineTracks() {
+        const tx = db.transaction('tracks', 'readonly');
+        const req = tx.objectStore('tracks').getAll();
+        req.onsuccess = () => {
+            if (req.result.length > 0) {
+                playlistQueue = req.result;
+                renderTrackList(playlistQueue, true);
+            }
+        };
+    }
+
+    // Core Logic
+    async function processPlaylist() {
+        const urlInput = document.getElementById('playlist-url').value.trim();
+        if (!urlInput) {
+            alert('Please enter a valid playlist URL.');
+            return;
+        }
+
+        document.getElementById('global-status').innerText = 'Extracting playlist metadata...';
+        
+        try {
+            const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}`);
+            const data = await response.json();
+            
+            if (data.tracks && data.tracks.length > 0) {
+                document.getElementById('global-status').innerText = `Found ${data.tracks.length} tracks. Starting download...`;
+                playlistQueue = data.tracks;
+                renderTrackList(playlistQueue, false);
+                await downloadQueue(playlistQueue);
+            } else {
+                document.getElementById('global-status').innerText = 'Could not find tracks in this playlist.';
+            }
+        } catch (error) {
+            document.getElementById('global-status').innerText = 'Error extracting playlist.';
+        }
+    }
+
+    async function downloadQueue(tracks) {
+        for (let track of tracks) {
+            const exists = await checkTrackInDB(track.id);
+            const statusEl = document.getElementById(`status-${track.id}`);
+            
+            if (!exists) {
+                if (statusEl) statusEl.innerText = 'Downloading...';
+                try {
+                    const query = `${track.title} ${track.artist}`;
+                    const res = await fetch(`/api/download?query=${encodeURIComponent(query)}`);
+                    
+                    if (res.ok) {
+                        const blob = await res.blob();
+                        await saveTrackToDB(track, blob);
+                        if (statusEl) statusEl.innerText = 'Saved Offline';
+                    } else {
+                        if (statusEl) statusEl.innerText = 'Failed';
+                    }
+                } catch (e) {
+                    if (statusEl) statusEl.innerText = 'Network Error';
+                }
+            } else {
+                if (statusEl) statusEl.innerText = 'Saved Offline';
+            }
+        }
+        document.getElementById('global-status').innerText = 'All done! Your music is saved and ready for offline play.';
+    }
+
+    // UI Rendering
+    function renderTrackList(tracks, isOfflineCheck) {
+        const list = document.getElementById('track-list');
+        list.innerHTML = '';
+        tracks.forEach((track, index) => {
+            const li = document.createElement('li');
+            li.className = 'track-item';
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'track-info';
+            infoDiv.innerHTML = `
+                <div class="track-title">${track.title}</div>
+                <div class="track-artist">${track.artist}</div>
+                <div class="track-status" id="status-${track.id}">${isOfflineCheck ? 'Saved Offline' : 'Waiting...'}</div>
+            `;
+            
+            const playBtn = document.createElement('button');
+            playBtn.className = 'play-btn';
+            playBtn.innerText = 'Play';
+            playBtn.onclick = () => playTrack(index);
+            
+            li.appendChild(infoDiv);
+            li.appendChild(playBtn);
+            list.appendChild(li);
+        });
+    }
+
+    // Audio Player & Background Support
+    function playTrack(index) {
+        if (index < 0 || index >= playlistQueue.length) return;
+        currentTrackIndex = index;
+        const track = playlistQueue[index];
+        
+        getTrackBlob(track.id).then(blob => {
+            if (!blob) {
+                alert('This track has not finished downloading yet.');
+                return;
+            }
+            
+            const objectUrl = URL.createObjectURL(blob);
+            audioEl.src = objectUrl;
+            audioEl.play();
+            
+            document.getElementById('now-playing-title').innerText = `${track.title} - ${track.artist}`;
+            document.getElementById('play-pause-btn').innerText = '⏸';
+            
+            // Register Background Media Session for iPhone Lock Screen
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title,
+                    artist: track.artist,
+                    album: 'Songify Offline Library',
+                });
+                
+                navigator.mediaSession.setActionHandler('play', () => audioEl.play());
+                navigator.mediaSession.setActionHandler('pause', () => audioEl.pause());
+                navigator.mediaSession.setActionHandler('previoustrack', playPrev);
+                navigator.mediaSession.setActionHandler('nexttrack', playNext);
+            }
+        });
+    }
+
+    audioEl.addEventListener('play', () => {
+        document.getElementById('play-pause-btn').innerText = '⏸';
+    });
+
+    audioEl.addEventListener('pause', () => {
+        document.getElementById('play-pause-btn').innerText = '▶';
+    });
+
+    // Sequential background continuation
+    audioEl.addEventListener('ended', () => {
+        playNext();
+    });
+
+    function togglePlayPause() {
+        if (audioEl.src) {
+            if (audioEl.paused) {
+                audioEl.play();
+            } else {
+                audioEl.pause();
+            }
+        }
+    }
+
+    function playNext() {
+        if (playlistQueue.length === 0) return;
+        let nextIndex;
+        if (isShuffle) {
+            nextIndex = Math.floor(Math.random() * playlistQueue.length);
+        } else {
+            nextIndex = currentTrackIndex + 1;
+            if (nextIndex >= playlistQueue.length) nextIndex = 0;
+        }
+        playTrack(nextIndex);
+    }
+
+    function playPrev() {
+        if (playlistQueue.length === 0) return;
+        let prevIndex = currentTrackIndex - 1;
+        if (prevIndex < 0) prevIndex = playlistQueue.length - 1;
+        playTrack(prevIndex);
+    }
+
+    function toggleShuffle() {
+        isShuffle = !isShuffle;
+        const btn = document.getElementById('shuffle-btn');
+        btn.style.backgroundColor = isShuffle ? '#D9C8B7' : '#FFFFFF';
+    }
+</script>
+</body>
+</html>
