@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Songify</title>
     <style>
         * {
@@ -10,7 +13,7 @@
             -webkit-tap-highlight-color: transparent;
         }
         body {
-            background-color: #F7EFEA; /* Cream / Skin color mix */
+            background-color: #F7EFEA;
             color: #38312C;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
@@ -74,6 +77,11 @@
         button:active {
             background-color: #D9C8B7;
         }
+        button:disabled {
+            background-color: #F7EFEA;
+            color: #A3968C;
+            cursor: not-allowed;
+        }
         .status-text {
             text-align: center;
             font-size: 14px;
@@ -81,6 +89,9 @@
             margin-bottom: 20px;
             min-height: 20px;
             font-weight: 500;
+        }
+        .error-text {
+            color: #D9534F;
         }
         .player-box {
             background-color: #F7EFEA;
@@ -113,14 +124,15 @@
             background-color: #FFFFFF;
             border: 1px solid #EFE4D9;
             border-radius: 50%;
-            width: 44px;
-            height: 44px;
+            width: 50px;
+            height: 50px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
+            font-size: 20px;
             padding: 0;
             color: #52473F;
+            cursor: pointer;
         }
         .control-btn:hover {
             background-color: #FCFAf8;
@@ -149,6 +161,7 @@
             flex-direction: column;
             overflow: hidden;
             padding-right: 10px;
+            flex-grow: 1;
         }
         .track-title {
             font-weight: 600;
@@ -193,7 +206,7 @@
     
     <div class="input-group">
         <input type="text" id="playlist-url" placeholder="Paste Spotify Playlist URL here...">
-        <button onclick="processPlaylist()">Extract & Download</button>
+        <button id="extract-btn" onclick="processPlaylist()">Extract & Download</button>
     </div>
     
     <div id="global-status" class="status-text">Your offline library is ready.</div>
@@ -204,7 +217,7 @@
             <button class="control-btn" onclick="playPrev()">⏮</button>
             <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">▶</button>
             <button class="control-btn" onclick="playNext()">⏭</button>
-            <button class="control-btn" onclick="toggleShuffle()" id="shuffle-btn">🔀</button>
+            <button class="control-btn" onclick="toggleShuffle()" id="shuffle-btn" style="font-size: 16px;">🔀</button>
         </div>
         <audio id="main-audio" playsinline></audio>
     </div>
@@ -213,14 +226,29 @@
 </div>
 
 <script>
-    const dbName = 'SongifyOfflineDB';
+    const dbName = 'SongifyOfflineDB_V3';
     let db;
     let playlistQueue = [];
     let currentTrackIndex = -1;
     let isShuffle = false;
     const audioEl = document.getElementById('main-audio');
+    const statusEl = document.getElementById('global-status');
+    const extractBtn = document.getElementById('extract-btn');
 
-    // Initialize IndexedDB
+    let audioUnlocked = false;
+    function unlockAudio() {
+        if (!audioUnlocked) {
+            audioEl.play().catch(() => {});
+            audioEl.pause();
+            audioEl.currentTime = 0;
+            audioUnlocked = true;
+            document.removeEventListener('click', unlockAudio);
+            document.removeEventListener('touchstart', unlockAudio);
+        }
+    }
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio);
+
     const initDB = () => {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(dbName, 1);
@@ -235,19 +263,21 @@
                 loadOfflineTracks();
                 resolve();
             };
-            request.onerror = (e) => reject(e);
+            request.onerror = (e) => {
+                reject(e);
+            };
         });
     };
 
     initDB();
 
-    // Database Helpers
     function saveTrackToDB(track, blob) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const tx = db.transaction('tracks', 'readwrite');
             const store = tx.objectStore('tracks');
-            store.put({ id: track.id, title: track.title, artist: track.artist, blob: blob });
-            tx.oncomplete = () => resolve();
+            const request = store.put({ id: track.id, title: track.title, artist: track.artist, blob: blob });
+            request.onsuccess = () => resolve();
+            request.onerror = (e) => reject(e);
         });
     }
 
@@ -256,6 +286,7 @@
             const tx = db.transaction('tracks', 'readonly');
             const req = tx.objectStore('tracks').get(id);
             req.onsuccess = () => resolve(req.result !== undefined);
+            req.onerror = () => resolve(false);
         });
     }
 
@@ -264,6 +295,7 @@
             const tx = db.transaction('tracks', 'readonly');
             const req = tx.objectStore('tracks').get(id);
             req.onsuccess = () => resolve(req.result ? req.result.blob : null);
+            req.onerror = () => resolve(null);
         });
     }
 
@@ -271,14 +303,14 @@
         const tx = db.transaction('tracks', 'readonly');
         const req = tx.objectStore('tracks').getAll();
         req.onsuccess = () => {
-            if (req.result.length > 0) {
+            if (req.result && req.result.length > 0) {
                 playlistQueue = req.result;
                 renderTrackList(playlistQueue, true);
+                statusEl.innerText = `Loaded ${playlistQueue.length} offline tracks.`;
             }
         };
     }
 
-    // Core Logic
     async function processPlaylist() {
         const urlInput = document.getElementById('playlist-url').value.trim();
         if (!urlInput) {
@@ -286,54 +318,85 @@
             return;
         }
 
-        document.getElementById('global-status').innerText = 'Extracting playlist metadata...';
+        extractBtn.disabled = true;
+        statusEl.className = 'status-text';
+        statusEl.innerText = 'Extracting playlist metadata...';
         
         try {
-            const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}`);
+            // Using Date.now() to completely bypass iOS caching
+            const response = await fetch(`/api/playlist?url=${encodeURIComponent(urlInput)}&t=${Date.now()}`);
             const data = await response.json();
             
+            if (data.error) {
+                statusEl.className = 'status-text error-text';
+                statusEl.innerText = `Error: ${data.error}`;
+                extractBtn.disabled = false;
+                return;
+            }
+
             if (data.tracks && data.tracks.length > 0) {
-                document.getElementById('global-status').innerText = `Found ${data.tracks.length} tracks. Starting download...`;
+                statusEl.innerText = `Found ${data.tracks.length} tracks. Starting downloads...`;
                 playlistQueue = data.tracks;
                 renderTrackList(playlistQueue, false);
                 await downloadQueue(playlistQueue);
             } else {
-                document.getElementById('global-status').innerText = 'Could not find tracks in this playlist.';
+                statusEl.className = 'status-text error-text';
+                statusEl.innerText = 'Could not find any tracks.';
             }
         } catch (error) {
-            document.getElementById('global-status').innerText = 'Error extracting playlist.';
+            statusEl.className = 'status-text error-text';
+            statusEl.innerText = 'Network connection failed during extraction.';
         }
+        extractBtn.disabled = false;
     }
 
     async function downloadQueue(tracks) {
+        let failCount = 0;
+
         for (let track of tracks) {
             const exists = await checkTrackInDB(track.id);
-            const statusEl = document.getElementById(`status-${track.id}`);
+            const trackStatusEl = document.getElementById(`status-${track.id}`);
             
             if (!exists) {
-                if (statusEl) statusEl.innerText = 'Downloading...';
-                try {
-                    const query = `${track.title} ${track.artist}`;
-                    const res = await fetch(`/api/download?query=${encodeURIComponent(query)}`);
-                    
-                    if (res.ok) {
-                        const blob = await res.blob();
-                        await saveTrackToDB(track, blob);
-                        if (statusEl) statusEl.innerText = 'Saved Offline';
-                    } else {
-                        if (statusEl) statusEl.innerText = 'Failed';
+                if (trackStatusEl) trackStatusEl.innerText = 'Downloading...';
+                
+                let downloaded = false;
+                for(let attempts = 0; attempts < 2; attempts++) {
+                    try {
+                        const query = `${track.title} ${track.artist} audio`;
+                        const res = await fetch(`/api/download?query=${encodeURIComponent(query)}&t=${Date.now()}`);
+                        
+                        if (res.ok) {
+                            const blob = await res.blob();
+                            await saveTrackToDB(track, blob);
+                            if (trackStatusEl) trackStatusEl.innerText = 'Saved Offline';
+                            downloaded = true;
+                            break; 
+                        }
+                    } catch (e) {
+                        console.log(`Retry...`, e);
                     }
-                } catch (e) {
-                    if (statusEl) statusEl.innerText = 'Network Error';
+                }
+                
+                if (!downloaded) {
+                    if (trackStatusEl) trackStatusEl.innerText = 'Failed';
+                    failCount++;
                 }
             } else {
-                if (statusEl) statusEl.innerText = 'Saved Offline';
+                if (trackStatusEl) trackStatusEl.innerText = 'Already Offline';
             }
         }
-        document.getElementById('global-status').innerText = 'All done! Your music is saved and ready for offline play.';
+        
+        statusEl.className = 'status-text';
+        if (failCount === 0) {
+            statusEl.innerText = 'All music saved for offline play!';
+        } else {
+            statusEl.innerText = `Finished with ${failCount} errors. Press Extract again to retry.`;
+        }
+        
+        loadOfflineTracks();
     }
 
-    // UI Rendering
     function renderTrackList(tracks, isOfflineCheck) {
         const list = document.getElementById('track-list');
         list.innerHTML = '';
@@ -360,7 +423,6 @@
         });
     }
 
-    // Audio Player & Background Support
     function playTrack(index) {
         if (index < 0 || index >= playlistQueue.length) return;
         currentTrackIndex = index;
@@ -372,14 +434,24 @@
                 return;
             }
             
+            if (audioEl.src && audioEl.src.startsWith('blob:')) {
+                URL.revokeObjectURL(audioEl.src);
+            }
+
             const objectUrl = URL.createObjectURL(blob);
             audioEl.src = objectUrl;
-            audioEl.play();
+            
+            const playPromise = audioEl.play();
+            if (playPromise !== undefined) {
+                playPromise.then(_ => {
+                    document.getElementById('play-pause-btn').innerText = '⏸';
+                }).catch(error => {
+                    alert("Please tap anywhere on the screen first to allow audio playback.");
+                });
+            }
             
             document.getElementById('now-playing-title').innerText = `${track.title} - ${track.artist}`;
-            document.getElementById('play-pause-btn').innerText = '⏸';
             
-            // Register Background Media Session for iPhone Lock Screen
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: track.title,
@@ -387,8 +459,8 @@
                     album: 'Songify Offline Library',
                 });
                 
-                navigator.mediaSession.setActionHandler('play', () => audioEl.play());
-                navigator.mediaSession.setActionHandler('pause', () => audioEl.pause());
+                navigator.mediaSession.setActionHandler('play', () => { audioEl.play(); });
+                navigator.mediaSession.setActionHandler('pause', () => { audioEl.pause(); });
                 navigator.mediaSession.setActionHandler('previoustrack', playPrev);
                 navigator.mediaSession.setActionHandler('nexttrack', playNext);
             }
@@ -403,7 +475,6 @@
         document.getElementById('play-pause-btn').innerText = '▶';
     });
 
-    // Sequential background continuation
     audioEl.addEventListener('ended', () => {
         playNext();
     });
