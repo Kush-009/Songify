@@ -1,7 +1,9 @@
+import os
 import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 import urllib.request
+import base64
 import re
 import yt_dlp
 
@@ -31,33 +33,37 @@ class handler(BaseHTTPRequestHandler):
                 
                 playlist_id = match.group(1)
                 
-                # Fetching access token dynamically from the Spotify homepage to guarantee access
-                home_req = urllib.request.Request(
-                    'https://open.spotify.com/', 
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
+                client_id = os.environ.get('SPOTIFY_CLIENT_ID')
+                client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET')
+                
+                if not client_id or not client_secret:
+                    self.wfile.write(json.dumps({'error': 'Spotify Auth Error: Missing API keys in Vercel settings.'}).encode())
+                    return
+
+                # Authenticate with Spotify Developer API using Client Credentials Flow
+                auth_string = f"{client_id}:{client_secret}"
+                auth_base64 = base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
+                
+                token_req = urllib.request.Request(
+                    'https://accounts.spotify.com/api/token',
+                    data=b'grant_type=client_credentials',
+                    headers={
+                        'Authorization': f'Basic {auth_base64}',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    method='POST'
                 )
-                home_html = urllib.request.urlopen(home_req).read().decode('utf-8')
                 
-                token_match = re.search(r'"accessToken":"(.*?)"', home_html)
-                
-                if not token_match:
-                    # Backup token extraction technique
-                    token_req = urllib.request.Request(
-                        'https://open.spotify.com/get_access_token?reason=transport&productType=web_player', 
-                        headers={'User-Agent': 'Mozilla/5.0'}
-                    )
-                    token_resp = urllib.request.urlopen(token_req).read()
-                    access_token = json.loads(token_resp).get('accessToken')
-                else:
-                    access_token = token_match.group(1)
+                token_resp = urllib.request.urlopen(token_req).read()
+                access_token = json.loads(token_resp).get('access_token')
 
                 if access_token:
+                    # Fetch the playlist tracks with the official access token
                     api_url = f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=100'
                     api_req = urllib.request.Request(
                         api_url,
                         headers={
-                            'Authorization': f'Bearer {access_token}',
-                            'User-Agent': 'Mozilla/5.0'
+                            'Authorization': f'Bearer {access_token}'
                         }
                     )
                     tracks_resp = urllib.request.urlopen(api_req).read()
@@ -77,11 +83,14 @@ class handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({'tracks': tracks}).encode())
                     return
                 else:
-                    self.wfile.write(json.dumps({'error': 'Failed to authenticate with Spotify anonymously.'}).encode())
+                    self.wfile.write(json.dumps({'error': 'Failed to retrieve Access Token from Spotify API.'}).encode())
                     return
                     
+            except urllib.error.HTTPError as e:
+                self.wfile.write(json.dumps({'error': f'Spotify API Error {e.code}: Double check your Client ID and Secret.'}).encode())
+                return
             except Exception as e:
-                self.wfile.write(json.dumps({'error': f'Spotify Error: {str(e)}'}).encode())
+                self.wfile.write(json.dumps({'error': f'System Error: {str(e)}'}).encode())
                 return
 
         # Fallback to standard extraction for YouTube or SoundCloud
