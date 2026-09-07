@@ -76,11 +76,30 @@
         #main-screen {
             display: none;
         }
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
         .section-title {
             font-size: 16px;
             font-weight: 600;
-            margin-bottom: 12px;
             color: #52473F;
+            margin: 0;
+        }
+        .logout-btn {
+            background-color: #F7EFEA;
+            color: #8A7F77;
+            border: 1px solid #EFE4D9;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .logout-btn:hover {
+            background-color: #EFE4D9;
         }
         
         .playlist-grid {
@@ -305,12 +324,15 @@
 
     <!-- MAIN SCREEN -->
     <div id="main-screen">
-        <div class="section-title">Select a Playlist</div>
+        <div class="header-row">
+            <div class="section-title">Select a Playlist</div>
+            <button class="logout-btn" onclick="logout()">Reset / Logout</button>
+        </div>
         <div class="playlist-grid" id="user-playlists">
             <div style="text-align: center; font-size: 14px; color: #8A7F77;">Loading your playlists...</div>
         </div>
 
-        <div class="section-title">Or Paste a Link</div>
+        <div class="section-title" style="margin-bottom: 12px;">Or Paste a Link</div>
         <div class="input-group">
             <input type="text" id="playlist-url" placeholder="Paste Spotify or YouTube link here...">
             <button id="extract-btn" onclick="processManualLink()">Extract & Download</button>
@@ -347,12 +369,18 @@
     const authScreen = document.getElementById('auth-screen');
     const mainScreen = document.getElementById('main-screen');
 
+    function logout() {
+        localStorage.removeItem('spotify_token');
+        spotifyToken = null;
+        checkAuth();
+    }
+
     function checkAuth() {
         const urlParams = new URLSearchParams(window.location.search);
         const tokenFromUrl = urlParams.get('token');
         const errorFromUrl = urlParams.get('error');
 
-        if (tokenFromUrl) {
+        if (tokenFromUrl && tokenFromUrl !== 'None' && tokenFromUrl !== 'null') {
             localStorage.setItem('spotify_token', tokenFromUrl);
             window.history.replaceState({}, document.title, "/"); 
             spotifyToken = tokenFromUrl;
@@ -361,17 +389,18 @@
         }
 
         if (errorFromUrl) {
-            alert("Authentication failed. Please try again.");
+            alert(`Authentication failed: ${errorFromUrl}. Please try again.`);
             window.history.replaceState({}, document.title, "/"); 
         }
 
-        if (spotifyToken) {
+        if (spotifyToken && spotifyToken !== 'None' && spotifyToken !== 'null' && spotifyToken !== 'undefined') {
             authScreen.style.display = 'none';
             mainScreen.style.display = 'block';
             fetchUserPlaylists();
         } else {
             authScreen.style.display = 'flex';
             mainScreen.style.display = 'none';
+            localStorage.removeItem('spotify_token');
         }
     }
 
@@ -381,9 +410,9 @@
                 headers: { 'Authorization': `Bearer ${spotifyToken}` }
             });
             
-            if (res.status === 401) {
-                localStorage.removeItem('spotify_token');
-                checkAuth();
+            // Auto-heal if token is rejected or corrupted
+            if (res.status === 401 || res.status === 400) {
+                logout();
                 return;
             }
 
@@ -398,13 +427,12 @@
 
             if (data.items && data.items.length > 0) {
                 data.items.forEach(playlist => {
-                    if (!playlist) return; // Skip if null
+                    if (!playlist) return; 
 
                     const card = document.createElement('div');
                     card.className = 'playlist-card';
                     card.onclick = () => extractSpotifyAPI(playlist.id, playlist.name);
                     
-                    // Safely check for images and tracks to prevent UI crashes
                     const imgUrl = (playlist.images && playlist.images.length > 0) ? playlist.images[0].url : 'https://placehold.co/50x50/EFE4D9/8A7F77?text=No+Cover';
                     const playlistName = playlist.name || "Unnamed Playlist";
                     const totalTracks = playlist.tracks ? playlist.tracks.total : 0;
@@ -437,7 +465,13 @@
                 headers: { 'Authorization': `Bearer ${spotifyToken}` }
             });
             
-            if (!res.ok) throw new Error("Could not access this playlist. Make sure it has tracks.");
+            // Auto-heal token issues
+            if (res.status === 401 || res.status === 400) {
+                logout();
+                return;
+            }
+
+            if (!res.ok) throw new Error("Could not access this playlist. It might be private or empty.");
             
             const data = await res.json();
             
@@ -476,8 +510,9 @@
             return;
         }
 
-        if (urlInput.includes('spotify.com/playlist/')) {
-            const match = urlInput.match(/playlist\/([a-zA-Z0-9]+)/);
+        // Case-insensitive check to gracefully handle 'Https://'
+        if (urlInput.toLowerCase().includes('spotify.com/playlist/')) {
+            const match = urlInput.match(/playlist\/([a-zA-Z0-9]+)/i);
             if (match && match[1]) {
                 extractSpotifyAPI(match[1], "Custom Link");
                 return;
